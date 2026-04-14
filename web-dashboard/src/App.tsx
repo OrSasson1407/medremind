@@ -1,19 +1,126 @@
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Activity, PlusCircle, Bell } from 'lucide-react';
-// Correct type-only import
-import { createPatient, type PatientCreate } from './api';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, useParams, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { 
+  Activity, 
+  PlusCircle, 
+  Bell, 
+  User as UserIcon, 
+  ChevronRight, 
+  Languages, 
+  Pill, 
+  Clock, 
+  Save 
+} from 'lucide-react';
 
-const DashboardHome = () => (
-  <div className="p-6">
-    <h2 className="text-2xl font-bold text-gray-800 mb-4">Family Dashboard</h2>
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-      <p className="text-gray-500">Welcome to MedRemind. Select an option from the menu.</p>
+// Explicit type-only imports to satisfy verbatimModuleSyntax
+import { 
+  createPatient, 
+  getPatients, 
+  createMedication, 
+  type Patient, 
+  type PatientCreate, 
+  type MedicationCreate 
+} from './api';
+
+// --- Dashboard Home (Patient List) ---
+const DashboardHome = () => {
+  const { data: patients, isLoading, error } = useQuery({
+    queryKey: ['patients'],
+    queryFn: getPatients,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center h-64 text-gray-500">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+        <p>Loading your family members...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-red-500 bg-red-50 rounded-lg m-6 border border-red-100">
+        <h3 className="font-bold">Connection Error</h3>
+        <p>Could not reach the backend. Please ensure Docker and FastAPI are running.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Family Overview</h2>
+          <p className="text-gray-500">
+            {patients?.length === 0 
+              ? "No patients registered yet" 
+              : `Monitoring ${patients?.length} family members`}
+          </p>
+        </div>
+        <Link 
+          to="/add-patient" 
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-shadow shadow-sm active:scale-95"
+        >
+          <PlusCircle className="w-4 h-4" /> Add Patient
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {patients?.map((patient: Patient) => (
+          <div 
+            key={patient.id} 
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all group"
+          >
+            <div className="flex items-center gap-4 mb-6">
+              <div className="bg-blue-50 p-3 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <UserIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-lg leading-tight">
+                  {patient.first_name} {patient.last_name}
+                </h3>
+                <div className="flex items-center gap-1 text-gray-400 mt-1">
+                  <Languages className="w-3 h-3" />
+                  <span className="text-xs uppercase font-semibold tracking-wider">
+                    {patient.language === 'he' ? 'Hebrew' : patient.language === 'ar' ? 'Arabic' : 'English'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="pt-4 border-t border-gray-50 flex justify-between items-center">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Security PIN</span>
+                <span className="text-sm font-mono text-gray-600">****</span>
+              </div>
+              <Link 
+                to={`/manage-meds/${patient.id}`}
+                className="text-blue-600 font-semibold text-sm flex items-center gap-1 group-hover:translate-x-1 transition-transform"
+              >
+                Manage Meds <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        ))}
+
+        {patients?.length === 0 && (
+          <div className="col-span-full py-20 text-center bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl">
+            <UserIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-gray-900 font-medium">No one here yet</h3>
+            <p className="text-gray-500 mb-6">Start by creating a profile for a family member.</p>
+            <Link to="/add-patient" className="text-blue-600 font-bold hover:underline">
+              Add your first patient →
+            </Link>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
+// --- Add Patient Component ---
 const AddPatient = () => {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<PatientCreate>({
@@ -48,10 +155,7 @@ const AddPatient = () => {
           <div>
             <label htmlFor="first_name" className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
             <input 
-              id="first_name"
-              name="first_name"
-              type="text" 
-              required
+              id="first_name" name="first_name" type="text" required
               className="w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500"
               value={formData.first_name}
               onChange={(e) => setFormData({...formData, first_name: e.target.value})}
@@ -60,10 +164,7 @@ const AddPatient = () => {
           <div>
             <label htmlFor="last_name" className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
             <input 
-              id="last_name"
-              name="last_name"
-              type="text" 
-              required
+              id="last_name" name="last_name" type="text" required
               className="w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500"
               value={formData.last_name}
               onChange={(e) => setFormData({...formData, last_name: e.target.value})}
@@ -74,11 +175,7 @@ const AddPatient = () => {
         <div>
           <label htmlFor="pin_code" className="block text-sm font-medium text-gray-700 mb-1">Patient PIN (4 Digits)</label>
           <input 
-            id="pin_code"
-            name="pin_code"
-            type="text" 
-            maxLength={4} 
-            required
+            id="pin_code" name="pin_code" type="text" maxLength={4} required
             className="w-full p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="e.g. 1234"
             value={formData.pin_code}
@@ -89,8 +186,7 @@ const AddPatient = () => {
         <div>
           <label htmlFor="language" className="block text-sm font-medium text-gray-700 mb-1">Preferred Language</label>
           <select 
-            id="language"
-            name="language"
+            id="language" name="language"
             className="w-full p-2 border border-gray-300 rounded-md bg-white outline-none"
             value={formData.language}
             onChange={(e) => setFormData({...formData, language: e.target.value as 'he' | 'ar' | 'en'})}
@@ -113,6 +209,146 @@ const AddPatient = () => {
   );
 };
 
+// --- Manage Medications Component ---
+const ManageMeds = () => {
+  const { patientId } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // Fetch all patients so we can find the current one and their meds
+  const { data: patients } = useQuery({
+    queryKey: ['patients'],
+    queryFn: getPatients,
+  });
+
+  const currentPatient = patients?.find(p => p.id === parseInt(patientId || '0'));
+  
+  const [formData, setFormData] = useState<Omit<MedicationCreate, 'patient_id'>>({
+    name: '',
+    dosage: '',
+    reminder_time: '08:00'
+  });
+
+  const mutation = useMutation({
+    mutationFn: (newMed: MedicationCreate) => createMedication(newMed),
+    onSuccess: () => {
+      alert('Medication scheduled successfully!');
+      queryClient.invalidateQueries({ queryKey: ['patients'] });
+      // Clear form after success
+      setFormData({ name: '', dosage: '', reminder_time: '08:00' });
+    },
+    onError: () => {
+      alert('Error scheduling medication. Ensure backend is active.');
+    }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!patientId) return;
+    mutation.mutate({ 
+      ...formData, 
+      patient_id: parseInt(patientId) 
+    });
+  };
+
+  return (
+    <div className="p-6 max-w-2xl">
+      <div className="mb-8 text-left">
+        <button 
+          onClick={() => navigate('/')} 
+          className="text-blue-600 text-sm font-medium mb-2 hover:underline flex items-center gap-1"
+        >
+          ← Back to Overview
+        </button>
+        <h2 className="text-2xl font-bold text-gray-800">
+          Schedule for {currentPatient ? `${currentPatient.first_name} ${currentPatient.last_name}` : 'Patient'}
+        </h2>
+        <p className="text-gray-500">Assign a new daily voice reminder.</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 space-y-6">
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="med_name" className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <Pill className="w-4 h-4" /> Medication Name
+            </label>
+            <input 
+              id="med_name" name="name" type="text" required placeholder="e.g. Aspirin"
+              className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="dosage" className="block text-sm font-medium text-gray-700 mb-1">Dosage Instruction</label>
+            <input 
+              id="dosage" name="dosage" type="text" required placeholder="e.g. 1 Tablet"
+              className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+              value={formData.dosage}
+              onChange={(e) => setFormData({...formData, dosage: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="reminder_time" className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+              <Clock className="w-4 h-4" /> Reminder Time
+            </label>
+            <input 
+              id="reminder_time" name="reminder_time" type="time" required
+              className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+              value={formData.reminder_time}
+              onChange={(e) => setFormData({...formData, reminder_time: e.target.value})}
+            />
+          </div>
+        </div>
+
+        <button 
+          type="submit"
+          disabled={mutation.isPending}
+          className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 active:scale-[0.98]"
+        >
+          <Save className="w-5 h-5" />
+          {mutation.isPending ? 'Saving...' : 'Set Voice Reminder'}
+        </button>
+      </form>
+
+      {/* --- Current Schedule Section --- */}
+      <div className="mt-12">
+        <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <Activity className="w-5 h-5 text-blue-600" /> Current Schedule
+        </h3>
+        <div className="space-y-3">
+          {(!currentPatient?.medications || currentPatient.medications.length === 0) ? (
+            <div className="bg-gray-50 border border-dashed border-gray-200 p-8 rounded-xl text-center">
+              <p className="text-gray-400 italic">No medications scheduled yet.</p>
+            </div>
+          ) : (
+            currentPatient.medications.map((med: any) => (
+              <div key={med.id} className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex items-center gap-3">
+                  <div className="bg-white p-2 rounded-lg text-blue-600 shadow-sm">
+                    <Pill className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-900">{med.name}</p>
+                    <p className="text-sm text-gray-500">{med.dosage}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-blue-700 font-mono font-bold text-lg leading-none">{med.reminder_time}</p>
+                  <p className="text-[10px] uppercase text-gray-400 font-bold tracking-widest mt-1">Daily</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Navigation Sidebar ---
 const Sidebar = () => {
   const location = useLocation();
   const navItems = [
@@ -121,7 +357,7 @@ const Sidebar = () => {
   ];
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col">
+    <div className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col sticky top-0">
       <div className="p-6 flex items-center gap-3 border-b border-gray-100">
         <div className="bg-blue-600 p-2 rounded-lg">
           <Bell className="w-6 h-6 text-white" />
@@ -134,7 +370,7 @@ const Sidebar = () => {
             key={item.name}
             to={item.path}
             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-              location.pathname === item.path ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'
+              location.pathname === item.path ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
             }`}
           >
             {item.icon}
@@ -142,19 +378,24 @@ const Sidebar = () => {
           </Link>
         ))}
       </nav>
+      <div className="p-4 border-t border-gray-100">
+        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Admin Portal v1.0</p>
+      </div>
     </div>
   );
 };
 
+// --- Main App Component ---
 export default function App() {
   return (
     <Router>
-      <div className="flex h-screen bg-gray-50">
+      <div className="flex h-screen bg-gray-50 font-sans">
         <Sidebar />
         <main className="flex-1 overflow-y-auto">
           <Routes>
             <Route path="/" element={<DashboardHome />} />
             <Route path="/add-patient" element={<AddPatient />} />
+            <Route path="/manage-meds/:patientId" element={<ManageMeds />} />
           </Routes>
         </main>
       </div>

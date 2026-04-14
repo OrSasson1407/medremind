@@ -41,9 +41,30 @@ def check_schedules():
     """Runs every minute to check if any medication needs to be taken now."""
     db = database.SessionLocal()
     try:
+        # 1. Get current time in HH:MM format
         now = datetime.now()
         current_time = now.strftime("%H:%M")
-        print(f"[SCHEDULER] Checking for medications scheduled at {current_time}...")
+        print(f"[SCHEDULER] Checking database for reminders at {current_time}...")
+        
+        # 2. Query for medications scheduled for this exact minute
+        # We join with the Patient table to get the name and language preference
+        reminders = db.query(models.Medication, models.Patient)\
+            .join(models.Patient, models.Medication.patient_id == models.Patient.id)\
+            .filter(models.Medication.reminder_time == current_time)\
+            .all()
+        
+        for med, patient in reminders:
+            print(f"[SCHEDULER] Match found! Triggering reminder for {patient.first_name}")
+            
+            # 3. Send the task to Celery/Redis
+            generate_reminder_task.delay(
+                patient_name=patient.first_name,
+                medication_name=med.name,
+                language=patient.language
+            )
+            
+    except Exception as e:
+        print(f"[SCHEDULER] Error: {str(e)}")
     finally:
         db.close()
 
