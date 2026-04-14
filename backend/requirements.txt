@@ -1,2 +1,11 @@
 fastapi
 uvicorn
+
+sqlalchemy
+psycopg2-binary
+
+gTTS
+
+celery
+redis
+apscheduler

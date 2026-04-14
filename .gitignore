@@ -2,6 +2,7 @@
 # Node & Web Dashboard
 # =========================
 node_modules/
+web-dashboard/node_modules/
 dist/
 build/
 .npm/
@@ -16,6 +17,9 @@ __pycache__/
 *$py.class
 venv/
 .venv/
+backend/venv/
+backend/.venv/
+backend/temp_audio/
 env/
 .pytest_cache/
 alembic.ini
