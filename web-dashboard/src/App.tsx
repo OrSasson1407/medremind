@@ -20,7 +20,8 @@ import {
   createMedication, 
   type Patient, 
   type PatientCreate, 
-  type MedicationCreate 
+  type MedicationCreate,
+  type Medication // Added this import for the list mapping
 } from './api';
 
 // --- Dashboard Home (Patient List) ---
@@ -324,7 +325,7 @@ const ManageMeds = () => {
               <p className="text-gray-400 italic">No medications scheduled yet.</p>
             </div>
           ) : (
-            currentPatient.medications.map((med: any) => (
+            currentPatient.medications.map((med: Medication) => ( // Fixed: Typed as Medication
               <div key={med.id} className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex items-center gap-3">
                   <div className="bg-white p-2 rounded-lg text-blue-600 shadow-sm">
