@@ -1,0 +1,40 @@
+# =========================
+# Node & Web Dashboard
+# =========================
+node_modules/
+dist/
+build/
+.npm/
+.env
+.env.local
+
+# =========================
+# Python & FastAPI Backend
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.pytest_cache/
+alembic.ini
+
+# =========================
+# React Native & Expo Mobile
+# =========================
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# =========================
+# OS & IDE Files
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
