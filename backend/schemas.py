@@ -52,8 +52,9 @@ class DoseLogResponse(BaseModel):
         from_attributes = True
 
 class DoseLogMark(BaseModel):
-    """Payload to mark a dose as taken."""
+    """Payload to mark a dose as taken. PIN is verified server-side."""
     dose_log_id: int
+    pin_code: str
 
 
 # ==========================================
@@ -118,6 +119,41 @@ class PatientResponse(PatientBase):
     caregiver_id: Optional[int]
     created_at: datetime
     medications: List[MedicationResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+# Slim version used by GET /patients/ — no nested dose_logs, just schedule times.
+# Keeps the list endpoint fast regardless of adherence history size.
+
+class ScheduleSummary(BaseModel):
+    id: int
+    scheduled_time: time
+
+    class Config:
+        from_attributes = True
+
+class MedicationSummary(BaseModel):
+    id: int
+    name: str
+    dosage: str
+    form: Optional[str]
+    inventory_count: int
+    schedules: List[ScheduleSummary] = []
+
+    class Config:
+        from_attributes = True
+
+class PatientSummary(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    pin_code: str
+    language: LanguageEnum
+    caregiver_id: Optional[int]
+    created_at: datetime
+    medications: List[MedicationSummary] = []
 
     class Config:
         from_attributes = True

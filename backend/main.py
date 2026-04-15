@@ -44,8 +44,9 @@ def check_schedules():
             .join(models.Medication, models.Schedule.medication_id == models.Medication.id)
             .join(models.Patient, models.Medication.patient_id == models.Patient.id)
             .filter(
-                text(f"TO_CHAR(schedules.scheduled_time, 'HH24:MI') = '{current_time}'")
+                text("TO_CHAR(schedules.scheduled_time, 'HH24:MI') = :ct")
             )
+            .params(ct=current_time)
             .all()
         )
 
@@ -145,7 +146,7 @@ def create_patient(
     db.refresh(patient)
     return patient
 
-@app.get("/patients/", response_model=List[schemas.PatientResponse])
+@app.get("/patients/", response_model=List[schemas.PatientSummary])
 def get_patients(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
@@ -317,11 +318,21 @@ def mark_dose_taken(
 ):
     """
     Called by the mobile app when the patient confirms they took their dose.
-    No auth guard — patient app uses PIN, not JWT.
+    No JWT — patient app uses PIN. PIN is verified against the owning patient.
     """
-    log = db.query(models.DoseLog).filter(models.DoseLog.id == payload.dose_log_id).first()
+    log = (
+        db.query(models.DoseLog)
+        .filter(models.DoseLog.id == payload.dose_log_id)
+        .first()
+    )
     if not log:
         raise HTTPException(status_code=404, detail="Dose log not found")
+
+    # Walk up: DoseLog → Schedule → Medication → Patient
+    patient = log.schedule.medication.patient
+    if patient.pin_code != payload.pin_code:
+        raise HTTPException(status_code=403, detail="Invalid PIN")
+
     log.is_taken = True
     log.taken_at = datetime.now(timezone.utc)
     db.commit()

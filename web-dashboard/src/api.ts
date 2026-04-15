@@ -160,8 +160,8 @@ export const getDoseLogs = async (patientId: number): Promise<DoseLog[]> => {
   return data;
 };
 
-export const markDoseTaken = async (doseLogId: number): Promise<DoseLog> => {
-  const { data } = await api.post('/dose-logs/mark-taken', { dose_log_id: doseLogId });
+export const markDoseTaken = async (doseLogId: number, pinCode: string): Promise<DoseLog> => {
+  const { data } = await api.post('/dose-logs/mark-taken', { dose_log_id: doseLogId, pin_code: pinCode });
   return data;
 };
 
