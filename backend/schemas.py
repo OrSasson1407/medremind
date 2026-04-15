@@ -3,7 +3,6 @@ from typing import List, Optional
 from datetime import datetime, time
 from enum import Enum
 
-
 class LanguageEnum(str, Enum):
     en = "en"
     he = "he"
@@ -45,6 +44,8 @@ class DoseLogResponse(BaseModel):
     schedule_id: int
     scheduled_at: datetime
     is_taken: bool
+    status: str
+    skip_reason: Optional[str]
     taken_at: Optional[datetime]
     created_at: datetime
 
@@ -55,6 +56,29 @@ class DoseLogMark(BaseModel):
     """Payload to mark a dose as taken. PIN is verified server-side."""
     dose_log_id: int
     pin_code: str
+    status: str  # "taken" or "skipped"
+    skip_reason: Optional[str] = None
+
+
+# ==========================================
+# Escalation Contacts
+# ==========================================
+
+class EscalationContactBase(BaseModel):
+    name: str
+    phone: str
+    priority: int = 1
+    notify_after_missed: int = 2
+
+class EscalationContactCreate(EscalationContactBase):
+    patient_id: int
+
+class EscalationContactResponse(EscalationContactBase):
+    id: int
+    patient_id: int
+
+    class Config:
+        from_attributes = True
 
 
 # ==========================================
@@ -69,6 +93,7 @@ class ScheduleResponse(BaseModel):
     id: int
     medication_id: int
     scheduled_time: time
+    active: bool
     dose_logs: List[DoseLogResponse] = []
 
     class Config:
@@ -83,7 +108,8 @@ class MedicationBase(BaseModel):
     name: str
     dosage: str
     form: Optional[str] = None
-    inventory_count: Optional[int] = 0
+    pill_count: Optional[int] = 0
+    refill_threshold: Optional[int] = 7
     instructions: Optional[str] = None
 
 class MedicationCreate(MedicationBase):
@@ -91,9 +117,13 @@ class MedicationCreate(MedicationBase):
     # Convenience: supply one time when creating, creates a Schedule automatically
     reminder_time: Optional[str] = None   # "HH:MM"
 
+class MedicationRefillUpdate(BaseModel):
+    pill_count: int
+
 class MedicationResponse(MedicationBase):
     id: int
     patient_id: int
+    active: bool
     created_at: datetime
     schedules: List[ScheduleResponse] = []
 
@@ -119,14 +149,12 @@ class PatientResponse(PatientBase):
     caregiver_id: Optional[int]
     created_at: datetime
     medications: List[MedicationResponse] = []
+    escalation_contacts: List[EscalationContactResponse] = []
 
     class Config:
         from_attributes = True
 
-
 # Slim version used by GET /patients/ — no nested dose_logs, just schedule times.
-# Keeps the list endpoint fast regardless of adherence history size.
-
 class ScheduleSummary(BaseModel):
     id: int
     scheduled_time: time
@@ -139,7 +167,8 @@ class MedicationSummary(BaseModel):
     name: str
     dosage: str
     form: Optional[str]
-    inventory_count: int
+    pill_count: int
+    refill_threshold: int
     schedules: List[ScheduleSummary] = []
 
     class Config:

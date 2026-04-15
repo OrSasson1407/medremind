@@ -1,26 +1,41 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Bell, Mail, Lock, User as UserIcon, AlertCircle } from 'lucide-react';
-import { login, register } from './api';
+import { login, register, fetchCurrentUser } from './api';
+import { useAuthStore } from './store/authStore';
 
-interface AuthPageProps {
-  onLogin: () => void;
-}
-
-export default function AuthPage({ onLogin }: AuthPageProps) {
+export default function AuthPage() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
 
+  // Zustand action to save the session
+  const loginToStore = useAuthStore((state) => state.login);
+
   const loginMutation = useMutation({
-    mutationFn: () => login({ username: email, password }),
-    onSuccess: (data) => {
-      localStorage.setItem('medremind_token', data.access_token);
-      onLogin();
+    mutationFn: async () => {
+      // 1. Get the JWT token
+      const tokenData = await login({ username: email, password });
+      
+      // 2. Temporarily inject token into Zustand so Axios interceptor can use it for the next call
+      useAuthStore.getState().login(tokenData.access_token, { id: 0, email: '' });
+      
+      // 3. Fetch the actual user profile data
+      const userProfile = await fetchCurrentUser();
+      
+      return { token: tokenData.access_token, user: userProfile };
     },
-    onError: () => setError('Invalid email or password.'),
+    onSuccess: (data) => {
+      // 4. Fully authenticate the session with real user data
+      loginToStore(data.token, data.user);
+      // Note: No need to call navigate() here, App.tsx will automatically redirect!
+    },
+    onError: () => {
+      useAuthStore.getState().logout(); // Clean up if it fails midway
+      setError('Invalid email or password.');
+    },
   });
 
   const registerMutation = useMutation({
@@ -29,17 +44,18 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
       setMode('login');
       setError('');
       setPassword('');
+      alert('Account created successfully! Please sign in.');
     },
-onError: (err: any) => {
-  const detail = err?.response?.data?.detail;
-  if (detail === 'Email already registered') {
-    setError('This email is already registered. Please log in instead.');
-  } else if (!err?.response) {
-    setError('Cannot reach the server. Make sure the backend is running on port 8000.');
-  } else {
-    setError(`Registration failed: ${detail ?? 'Unknown error'}`);
-  }
-},
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail;
+      if (detail === 'Email already registered') {
+        setError('This email is already registered. Please log in instead.');
+      } else if (!err?.response) {
+        setError('Cannot reach the server. Make sure the backend is running on port 8000.');
+      } else {
+        setError(`Registration failed: ${detail ?? 'Unknown error'}`);
+      }
+    },
   });
 
   const isPending = loginMutation.isPending || registerMutation.isPending;
@@ -54,6 +70,7 @@ onError: (err: any) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+        
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center bg-blue-600 w-14 h-14 rounded-2xl shadow-lg shadow-blue-200 mb-4">
@@ -65,6 +82,7 @@ onError: (err: any) => {
 
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-xl shadow-gray-100 p-8 border border-gray-100">
+          
           {/* Tab switcher */}
           <div className="flex rounded-xl bg-gray-100 p-1 mb-6">
             {(['login', 'register'] as const).map((m) => (

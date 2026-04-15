@@ -1,12 +1,19 @@
 from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime, time as dt_time, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
+import io
+
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+except ImportError:
+    pass  # Ensure you run: pip install reportlab
 
 import database
 import models
@@ -28,7 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
 def check_schedules():
@@ -44,7 +50,8 @@ def check_schedules():
             .join(models.Medication, models.Schedule.medication_id == models.Medication.id)
             .join(models.Patient, models.Medication.patient_id == models.Patient.id)
             .filter(
-                text("TO_CHAR(schedules.scheduled_time, 'HH24:MI') = :ct")
+                text("TO_CHAR(schedules.scheduled_time, 'HH24:MI') = :ct"),
+                models.Schedule.active == True
             )
             .params(ct=current_time)
             .all()
@@ -53,11 +60,12 @@ def check_schedules():
         for schedule, med, patient in rows:
             print(f"[SCHEDULER] Reminder: {patient.first_name} → {med.name}")
 
-            # Create a DoseLog entry for this firing
+            # Create a DoseLog entry for this firing (defaults to missed until patient acts)
             dose_log = models.DoseLog(
                 schedule_id=schedule.id,
                 scheduled_at=datetime.now(timezone.utc),
                 is_taken=False,
+                status="missed" 
             )
             db.add(dose_log)
 
@@ -188,6 +196,24 @@ def delete_patient(
     db.delete(patient)
     db.commit()
 
+# NEW: Escalation Contacts
+@app.post("/patients/{patient_id}/escalation", response_model=schemas.EscalationContactResponse, status_code=201)
+def create_escalation_contact(
+    patient_id: int,
+    payload: schemas.EscalationContactCreate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    patient = db.query(models.Patient).filter(models.Patient.id == patient_id, models.Patient.caregiver_id == current_user.id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    contact = models.EscalationContact(**payload.model_dump())
+    db.add(contact)
+    db.commit()
+    db.refresh(contact)
+    return contact
+
 
 # ── Medications ────────────────────────────────────────────────────────────────
 
@@ -197,7 +223,6 @@ def create_medication(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    # Ensure patient belongs to this caregiver
     patient = (
         db.query(models.Patient)
         .filter(models.Patient.id == payload.patient_id, models.Patient.caregiver_id == current_user.id)
@@ -209,9 +234,8 @@ def create_medication(
     med_data = payload.model_dump(exclude={"reminder_time"})
     med = models.Medication(**med_data)
     db.add(med)
-    db.flush()  # get med.id before committing
+    db.flush() 
 
-    # Auto-create a Schedule if reminder_time was supplied
     if payload.reminder_time:
         h, m = map(int, payload.reminder_time.split(":"))
         schedule = models.Schedule(
@@ -220,6 +244,26 @@ def create_medication(
         )
         db.add(schedule)
 
+    db.commit()
+    db.refresh(med)
+    return med
+
+@app.put("/medications/{medication_id}/refill", response_model=schemas.MedicationResponse)
+def update_refill(
+    medication_id: int,
+    payload: schemas.MedicationRefillUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    med = db.query(models.Medication).join(models.Patient).filter(
+        models.Medication.id == medication_id, 
+        models.Patient.caregiver_id == current_user.id
+    ).first()
+    
+    if not med:
+        raise HTTPException(status_code=404, detail="Medication not found")
+
+    med.pill_count = payload.pill_count
     db.commit()
     db.refresh(med)
     return med
@@ -291,7 +335,6 @@ def get_dose_logs(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """Return all dose logs for a patient (latest 100)."""
     patient = (
         db.query(models.Patient)
         .filter(models.Patient.id == patient_id, models.Patient.caregiver_id == current_user.id)
@@ -316,10 +359,6 @@ def mark_dose_taken(
     payload: schemas.DoseLogMark,
     db: Session = Depends(database.get_db),
 ):
-    """
-    Called by the mobile app when the patient confirms they took their dose.
-    No JWT — patient app uses PIN. PIN is verified against the owning patient.
-    """
     log = (
         db.query(models.DoseLog)
         .filter(models.DoseLog.id == payload.dose_log_id)
@@ -328,19 +367,29 @@ def mark_dose_taken(
     if not log:
         raise HTTPException(status_code=404, detail="Dose log not found")
 
-    # Walk up: DoseLog → Schedule → Medication → Patient
     patient = log.schedule.medication.patient
     if patient.pin_code != payload.pin_code:
         raise HTTPException(status_code=403, detail="Invalid PIN")
 
-    log.is_taken = True
+    # Update logic for new schema
+    log.status = payload.status
+    log.skip_reason = payload.skip_reason
     log.taken_at = datetime.now(timezone.utc)
+    
+    if payload.status == "taken":
+        log.is_taken = True
+        # Decrement inventory pill count if taken
+        if log.schedule.medication.pill_count > 0:
+            log.schedule.medication.pill_count -= 1
+    else:
+        log.is_taken = False
+
     db.commit()
     db.refresh(log)
     return log
 
 
-# ── Adherence stats ────────────────────────────────────────────────────────────
+# ── Adherence stats & Reporting ────────────────────────────────────────────────
 
 @app.get("/adherence/{patient_id}", response_model=schemas.AdherenceStats)
 def get_adherence(
@@ -376,6 +425,117 @@ def get_adherence(
         taken_doses=taken,
         missed_doses=missed,
         adherence_pct=pct,
+    )
+
+@app.get("/patients/{patient_id}/adherence/heatmap")
+def get_adherence_heatmap(
+    patient_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Returns a 30-day summary of taken vs missed doses for a GitHub-style heatmap."""
+    patient = db.query(models.Patient).filter(
+        models.Patient.id == patient_id, 
+        models.Patient.caregiver_id == current_user.id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    today = datetime.now(timezone.utc).date()
+    start_date = today - timedelta(days=30)
+
+    logs = (
+        db.query(models.DoseLog)
+        .join(models.Schedule)
+        .join(models.Medication)
+        .filter(
+            models.Medication.patient_id == patient_id,
+            models.DoseLog.scheduled_at >= datetime.combine(start_date, dt_time.min).replace(tzinfo=timezone.utc)
+        )
+        .all()
+    )
+
+    heatmap_data = {}
+    for i in range(31):
+        day_str = (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
+        heatmap_data[day_str] = {"total": 0, "taken": 0, "missed": 0, "skipped": 0}
+
+    for log in logs:
+        log_date = log.scheduled_at.date().strftime("%Y-%m-%d")
+        if log_date in heatmap_data:
+            heatmap_data[log_date]["total"] += 1
+            if log.status == "taken":
+                heatmap_data[log_date]["taken"] += 1
+            elif log.status == "skipped":
+                heatmap_data[log_date]["skipped"] += 1
+            else:
+                heatmap_data[log_date]["missed"] += 1
+
+    return {"patient_id": patient_id, "heatmap": heatmap_data}
+
+@app.get("/patients/{patient_id}/report/pdf")
+def download_doctor_report(
+    patient_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Generates a downloadable PDF report for a doctor visit."""
+    patient = db.query(models.Patient).filter(
+        models.Patient.id == patient_id, 
+        models.Patient.caregiver_id == current_user.id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    start_date = datetime.now(timezone.utc) - timedelta(days=30)
+    logs = db.query(models.DoseLog).join(models.Schedule).join(models.Medication).filter(
+        models.Medication.patient_id == patient_id,
+        models.DoseLog.scheduled_at >= start_date
+    ).order_by(models.DoseLog.scheduled_at.desc()).limit(50).all()
+
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    p.setFont("Helvetica-Bold", 16)
+    
+    p.drawString(50, 750, f"MedRemind - Adherence Report")
+    p.setFont("Helvetica", 12)
+    p.drawString(50, 730, f"Patient Name: {patient.first_name} {patient.last_name}")
+    p.drawString(50, 710, f"Report Date: {datetime.now().strftime('%Y-%m-%d')}")
+    p.line(50, 700, 550, 700)
+
+    y_position = 670
+    p.setFont("Helvetica-Bold", 12)
+    p.drawString(50, y_position, "Recent Medication Logs (Last 30 Days):")
+    y_position -= 20
+    
+    p.setFont("Helvetica", 10)
+    for log in logs:
+        if y_position < 50: 
+            p.showPage()
+            y_position = 750
+            p.setFont("Helvetica", 10)
+            
+        med_name = log.schedule.medication.name
+        date_str = log.scheduled_at.strftime("%b %d, %Y - %H:%M")
+        status_text = log.status.upper()
+        reason = f"(Reason: {log.skip_reason})" if log.skip_reason else ""
+        
+        line_text = f"• {date_str} | {med_name} | Status: {status_text} {reason}"
+        p.drawString(60, y_position, line_text)
+        y_position -= 15
+
+    p.line(50, y_position - 10, 550, y_position - 10)
+    p.drawString(50, y_position - 30, "Generated by MedRemind Caregiver Platform")
+    p.drawString(50, y_position - 50, "Doctor's Signature: ___________________________")
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer, 
+        media_type="application/pdf", 
+        headers={"Content-Disposition": f"attachment; filename=medremind_report_{patient.first_name}.pdf"}
     )
 
 

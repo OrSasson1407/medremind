@@ -38,10 +38,25 @@ class Patient(Base):
 
     caregiver = relationship("User", back_populates="patients")
     medications = relationship("Medication", back_populates="patient", cascade="all, delete-orphan")
+    escalation_contacts = relationship("EscalationContact", back_populates="patient", cascade="all, delete-orphan")
+
+
+class EscalationContact(Base):
+    """Emergency contacts for when a patient misses multiple consecutive doses."""
+    __tablename__ = "escalation_contacts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    name = Column(String, nullable=False)
+    phone = Column(String, nullable=False)
+    priority = Column(Integer, default=1)
+    notify_after_missed = Column(Integer, default=2)
+
+    patient = relationship("Patient", back_populates="escalation_contacts")
 
 
 class Medication(Base):
-    """A drug assigned to a patient, with one or more daily schedule slots."""
+    """A drug assigned to a patient, with inventory tracking for refills."""
     __tablename__ = "medications"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -49,8 +64,10 @@ class Medication(Base):
     name = Column(String, nullable=False)
     dosage = Column(String, nullable=False)
     form = Column(String, nullable=True)
-    inventory_count = Column(Integer, default=0)
+    pill_count = Column(Integer, default=0)
+    refill_threshold = Column(Integer, default=7)
     instructions = Column(String, nullable=True)
+    active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     patient = relationship("Patient", back_populates="medications")
@@ -67,6 +84,7 @@ class Schedule(Base):
     id = Column(Integer, primary_key=True, index=True)
     medication_id = Column(Integer, ForeignKey("medications.id"), nullable=False)
     scheduled_time = Column(Time, nullable=False)
+    active = Column(Boolean, default=True)
 
     medication = relationship("Medication", back_populates="schedules")
     dose_logs = relationship("DoseLog", back_populates="schedule", cascade="all, delete-orphan")
@@ -85,6 +103,8 @@ class DoseLog(Base):
     scheduled_at = Column(DateTime(timezone=True), nullable=False)
     is_taken = Column(Boolean, default=False)
     taken_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String, default="missed") # 'taken', 'skipped', 'missed'
+    skip_reason = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     schedule = relationship("Schedule", back_populates="dose_logs")
