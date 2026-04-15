@@ -10,25 +10,54 @@ import {
   Languages, 
   Pill, 
   Clock, 
-  Save 
+  Save,
+  LogOut,
+  Trash2,
+  TrendingUp,
 } from 'lucide-react';
 
-// Explicit type-only imports to satisfy verbatimModuleSyntax
 import { 
   createPatient, 
   getPatients, 
   createMedication, 
+  deletePatient,
+  deleteMedication,
+  getAdherence,
   type Patient, 
   type PatientCreate, 
   type MedicationCreate,
-  type Medication // Added this import for the list mapping
+  type Medication,
 } from './api';
+
+import AuthPage from './AuthPage';
+
+// --- Adherence Badge ---
+const AdherenceBadge = ({ patientId }: { patientId: number }) => {
+  const { data } = useQuery({
+    queryKey: ['adherence', patientId],
+    queryFn: () => getAdherence(patientId),
+    staleTime: 60_000,
+  });
+  if (!data) return null;
+  const color = data.adherence_pct >= 80 ? 'text-green-600 bg-green-50' : data.adherence_pct >= 50 ? 'text-amber-600 bg-amber-50' : 'text-red-600 bg-red-50';
+  return (
+    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color}`}>
+      {data.adherence_pct}% adherence
+    </span>
+  );
+};
 
 // --- Dashboard Home (Patient List) ---
 const DashboardHome = () => {
+  const queryClient = useQueryClient();
   const { data: patients, isLoading, error } = useQuery({
     queryKey: ['patients'],
     queryFn: getPatients,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deletePatient,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['patients'] }),
   });
 
   if (isLoading) {
@@ -74,12 +103,12 @@ const DashboardHome = () => {
             key={patient.id} 
             className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all group"
           >
-            <div className="flex items-center gap-4 mb-6">
-              <div className="bg-blue-50 p-3 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+            <div className="flex items-start gap-4 mb-4">
+              <div className="bg-blue-50 p-3 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors flex-shrink-0">
                 <UserIcon className="w-6 h-6" />
               </div>
-              <div>
-                <h3 className="font-bold text-gray-900 text-lg leading-tight">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-gray-900 text-lg leading-tight truncate">
                   {patient.first_name} {patient.last_name}
                 </h3>
                 <div className="flex items-center gap-1 text-gray-400 mt-1">
@@ -89,18 +118,30 @@ const DashboardHome = () => {
                   </span>
                 </div>
               </div>
+              <button
+                onClick={() => {
+                  if (confirm(`Remove ${patient.first_name}?`)) deleteMutation.mutate(patient.id);
+                }}
+                className="text-gray-300 hover:text-red-500 transition-colors p-1"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <AdherenceBadge patientId={patient.id} />
             </div>
             
             <div className="pt-4 border-t border-gray-50 flex justify-between items-center">
-              <div className="flex flex-col">
-                <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Security PIN</span>
-                <span className="text-sm font-mono text-gray-600">****</span>
+              <div className="flex items-center gap-1 text-gray-400 text-xs">
+                <Pill className="w-3 h-3" />
+                <span>{patient.medications.length} medication{patient.medications.length !== 1 ? 's' : ''}</span>
               </div>
               <Link 
                 to={`/manage-meds/${patient.id}`}
                 className="text-blue-600 font-semibold text-sm flex items-center gap-1 group-hover:translate-x-1 transition-transform"
               >
-                Manage Meds <ChevronRight className="w-4 h-4" />
+                Manage <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
           </div>
@@ -216,7 +257,6 @@ const ManageMeds = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // Fetch all patients so we can find the current one and their meds
   const { data: patients } = useQuery({
     queryKey: ['patients'],
     queryFn: getPatients,
@@ -233,14 +273,17 @@ const ManageMeds = () => {
   const mutation = useMutation({
     mutationFn: (newMed: MedicationCreate) => createMedication(newMed),
     onSuccess: () => {
-      alert('Medication scheduled successfully!');
       queryClient.invalidateQueries({ queryKey: ['patients'] });
-      // Clear form after success
       setFormData({ name: '', dosage: '', reminder_time: '08:00' });
     },
     onError: () => {
       alert('Error scheduling medication. Ensure backend is active.');
     }
+  });
+
+  const deleteMedMutation = useMutation({
+    mutationFn: deleteMedication,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['patients'] }),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -325,8 +368,8 @@ const ManageMeds = () => {
               <p className="text-gray-400 italic">No medications scheduled yet.</p>
             </div>
           ) : (
-            currentPatient.medications.map((med: Medication) => ( // Fixed: Typed as Medication
-              <div key={med.id} className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
+            currentPatient.medications.map((med: Medication) => (
+              <div key={med.id} className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex justify-between items-center">
                 <div className="flex items-center gap-3">
                   <div className="bg-white p-2 rounded-lg text-blue-600 shadow-sm">
                     <Pill className="w-5 h-5" />
@@ -334,12 +377,21 @@ const ManageMeds = () => {
                   <div>
                     <p className="font-bold text-gray-900">{med.name}</p>
                     <p className="text-sm text-gray-500">{med.dosage}</p>
+                    {med.schedules.map(s => (
+                      <p key={s.id} className="text-xs text-blue-600 font-mono mt-0.5">
+                        🔔 {s.scheduled_time.slice(0, 5)} daily
+                      </p>
+                    ))}
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-blue-700 font-mono font-bold text-lg leading-none">{med.reminder_time}</p>
-                  <p className="text-[10px] uppercase text-gray-400 font-bold tracking-widest mt-1">Daily</p>
-                </div>
+                <button
+                  onClick={() => {
+                    if (confirm(`Remove ${med.name}?`)) deleteMedMutation.mutate(med.id);
+                  }}
+                  className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))
           )}
@@ -350,11 +402,12 @@ const ManageMeds = () => {
 };
 
 // --- Navigation Sidebar ---
-const Sidebar = () => {
+const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
   const location = useLocation();
   const navItems = [
     { name: 'Overview', path: '/', icon: <Activity className="w-5 h-5" /> },
     { name: 'Add Patient', path: '/add-patient', icon: <PlusCircle className="w-5 h-5" /> },
+    { name: 'Adherence', path: '/adherence', icon: <TrendingUp className="w-5 h-5" /> },
   ];
 
   return (
@@ -380,23 +433,104 @@ const Sidebar = () => {
         ))}
       </nav>
       <div className="p-4 border-t border-gray-100">
-        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">Admin Portal v1.0</p>
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+        >
+          <LogOut className="w-4 h-4" /> Sign Out
+        </button>
       </div>
+    </div>
+  );
+};
+
+// --- Adherence Overview Page ---
+const AdherencePage = () => {
+  const { data: patients } = useQuery({ queryKey: ['patients'], queryFn: getPatients });
+
+  return (
+    <div className="p-6">
+      <h2 className="text-2xl font-bold text-gray-800 mb-2">Adherence Overview</h2>
+      <p className="text-gray-500 mb-8">Track how consistently each patient takes their medications.</p>
+      <div className="space-y-4">
+        {patients?.map((p) => <AdherenceCard key={p.id} patient={p} />)}
+        {patients?.length === 0 && (
+          <p className="text-gray-400 text-center py-12">No patients yet.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const AdherenceCard = ({ patient }: { patient: Patient }) => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['adherence', patient.id],
+    queryFn: () => getAdherence(patient.id),
+  });
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-gray-900">{patient.first_name} {patient.last_name}</h3>
+        {data && (
+          <span className={`text-sm font-bold px-3 py-1 rounded-full ${
+            data.adherence_pct >= 80 ? 'bg-green-100 text-green-700' :
+            data.adherence_pct >= 50 ? 'bg-amber-100 text-amber-700' :
+            'bg-red-100 text-red-700'
+          }`}>
+            {data.adherence_pct}%
+          </span>
+        )}
+      </div>
+      {isLoading ? (
+        <div className="h-2 bg-gray-100 rounded-full animate-pulse" />
+      ) : data ? (
+        <>
+          <div className="w-full bg-gray-100 rounded-full h-2.5 mb-3">
+            <div
+              className={`h-2.5 rounded-full transition-all ${
+                data.adherence_pct >= 80 ? 'bg-green-500' :
+                data.adherence_pct >= 50 ? 'bg-amber-500' : 'bg-red-500'
+              }`}
+              style={{ width: `${data.adherence_pct}%` }}
+            />
+          </div>
+          <div className="flex gap-6 text-sm text-gray-500">
+            <span>✅ {data.taken_doses} taken</span>
+            <span>❌ {data.missed_doses} missed</span>
+            <span>📋 {data.total_doses} total</span>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-gray-400">No dose history yet.</p>
+      )}
     </div>
   );
 };
 
 // --- Main App Component ---
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('medremind_token'));
+
+  const handleLogout = () => {
+    localStorage.removeItem('medremind_token');
+    setIsLoggedIn(false);
+  };
+
+  if (!isLoggedIn) {
+    return <AuthPage onLogin={() => setIsLoggedIn(true)} />;
+  }
+
   return (
     <Router>
       <div className="flex h-screen bg-gray-50 font-sans">
-        <Sidebar />
+        <Sidebar onLogout={handleLogout} />
         <main className="flex-1 overflow-y-auto">
           <Routes>
             <Route path="/" element={<DashboardHome />} />
             <Route path="/add-patient" element={<AddPatient />} />
             <Route path="/manage-meds/:patientId" element={<ManageMeds />} />
+            <Route path="/adherence" element={<AdherencePage />} />
           </Routes>
         </main>
       </div>
