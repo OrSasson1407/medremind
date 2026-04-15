@@ -30,7 +30,16 @@ export default function AuthPage({ onLogin }: AuthPageProps) {
       setError('');
       setPassword('');
     },
-    onError: () => setError('Registration failed. Email may already be in use.'),
+onError: (err: any) => {
+  const detail = err?.response?.data?.detail;
+  if (detail === 'Email already registered') {
+    setError('This email is already registered. Please log in instead.');
+  } else if (!err?.response) {
+    setError('Cannot reach the server. Make sure the backend is running on port 8000.');
+  } else {
+    setError(`Registration failed: ${detail ?? 'Unknown error'}`);
+  }
+},
   });
 
   const isPending = loginMutation.isPending || registerMutation.isPending;
