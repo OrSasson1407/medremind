@@ -33,12 +33,12 @@ export const storage = {
 
 export const zustandStorage: StateStorage = {
   setItem: (name: string, value: string) => {
-    storage.set(name, value);
+    return storage.set(name, value);   // ✅ returns the Promise
   },
   getItem: (name: string) => {
     return AsyncStorage.getItem(name);
   },
   removeItem: (name: string) => {
-    storage.delete(name);
+    return storage.delete(name);       // ✅ returns the Promise
   },
 };

@@ -19,11 +19,10 @@ export default function RootLayout() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
-  // Hydrate storage cache FIRST, then load i18n
+  // ✅ Hydrate storage cache FIRST, then load i18n
   useEffect(() => {
     storage.hydrate().then(() => {
-      // Dynamically import i18n only after storage is ready
-      require('../i18n');
+      require('../i18n');   // dynamic import — runs after storage is ready
       setReady(true);
     });
   }, []);
@@ -38,6 +37,7 @@ export default function RootLayout() {
     }
   }, [patientId, segments, ready]);
 
+  // ✅ Show spinner until hydration is complete
   if (!ready) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>

@@ -29,9 +29,10 @@ export interface PatientState {
   pinCode: string | null;
   medications: Medication[];
   pendingLogs: PendingLog[];
-  
+
   // Actions
   setAuth: (id: number, pin: string) => void;
+  logout: () => void;                          // ✅ new
   syncData: () => Promise<void>;
   markDose: (logId: number, status: 'taken' | 'skipped', reason?: string) => Promise<void>;
 }
@@ -39,7 +40,6 @@ export interface PatientState {
 export const usePatientStore = create<PatientState>()(
   persist(
     (set, get) => ({
-      // Explicitly cast null to satisfy the union types in PatientState
       patientId: null as number | null,
       pinCode: null as string | null,
       medications: [],
@@ -47,30 +47,30 @@ export const usePatientStore = create<PatientState>()(
 
       setAuth: (id: number, pin: string) => set({ patientId: id, pinCode: pin }),
 
+      // ✅ Clears all state → triggers auth guard → redirects to /login
+      logout: () => set({ patientId: null, pinCode: null, medications: [], pendingLogs: [] }),
+
       syncData: async () => {
         const { patientId, pendingLogs } = get();
         if (!patientId) return;
 
         try {
-          // 1. Process the offline queue
           if (pendingLogs.length > 0) {
             for (const log of pendingLogs) {
               await api.post('/dose-logs/mark-taken', {
                 dose_log_id: log.dose_log_id,
                 pin_code: log.pin_code,
                 status: log.status,
-                skip_reason: log.skip_reason
+                skip_reason: log.skip_reason,
               });
             }
             set({ pendingLogs: [] });
           }
 
-          // 2. Fetch fresh medications schedule
           const { data } = await api.get(`/patients/${patientId}`);
           if (data && data.medications) {
             set({ medications: data.medications });
           }
-          
         } catch (error) {
           console.log('[SYNC] Network unavailable, maintaining offline cache.');
         }
@@ -79,21 +79,18 @@ export const usePatientStore = create<PatientState>()(
       markDose: async (logId: number, status: 'taken' | 'skipped', reason?: string) => {
         const { pinCode, pendingLogs } = get();
         if (!pinCode) return;
-        
+
         const payload: PendingLog = {
           dose_log_id: logId,
           pin_code: pinCode,
           status,
           skip_reason: reason || null,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         };
 
-        // Instantly save to local queue
         set({ pendingLogs: [...pendingLogs, payload] });
-
-        // Attempt background sync
         get().syncData();
-      }
+      },
     }),
     {
       name: 'medremind-patient-store',
