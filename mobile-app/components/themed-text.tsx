@@ -1,11 +1,13 @@
 import { StyleSheet, Text, type TextProps } from 'react-native';
 
 import { useThemeColor } from '@/hooks/use-theme-color';
+import { Typography, Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export type ThemedTextProps = TextProps & {
   lightColor?: string;
   darkColor?: string;
-  type?: 'default' | 'title' | 'defaultSemiBold' | 'subtitle' | 'link';
+  type?: 'default' | 'title' | 'defaultSemiBold' | 'subtitle' | 'link' | 'action';
 };
 
 export function ThemedText({
@@ -16,6 +18,8 @@ export function ThemedText({
   ...rest
 }: ThemedTextProps) {
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
+  const theme = useColorScheme() ?? 'light';
+  const tintColor = Colors[theme].tint;
 
   return (
     <Text
@@ -25,7 +29,9 @@ export function ThemedText({
         type === 'title' ? styles.title : undefined,
         type === 'defaultSemiBold' ? styles.defaultSemiBold : undefined,
         type === 'subtitle' ? styles.subtitle : undefined,
-        type === 'link' ? styles.link : undefined,
+        // Override link color dynamically based on theme
+        type === 'link' ? { ...styles.link, color: tintColor } : undefined,
+        type === 'action' ? styles.action : undefined,
         style,
       ]}
       {...rest}
@@ -35,26 +41,30 @@ export function ThemedText({
 
 const styles = StyleSheet.create({
   default: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: Typography.body, // 18px minimum
+    lineHeight: Typography.body * 1.5,
   },
   defaultSemiBold: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: Typography.body,
+    lineHeight: Typography.body * 1.5,
     fontWeight: '600',
   },
   title: {
-    fontSize: 32,
+    fontSize: Typography.header + 6, // 28px for main screen titles
     fontWeight: 'bold',
-    lineHeight: 32,
+    lineHeight: (Typography.header + 6) * 1.2,
   },
   subtitle: {
-    fontSize: 20,
+    fontSize: Typography.header, // 22px for medication names
     fontWeight: 'bold',
   },
   link: {
-    lineHeight: 30,
-    fontSize: 16,
-    color: '#0a7ea4',
+    lineHeight: Typography.body * 1.5,
+    fontSize: Typography.body,
   },
+  action: {
+    fontSize: Typography.action, // 36px for primary buttons
+    fontWeight: 'bold',
+    textAlign: 'center',
+  }
 });

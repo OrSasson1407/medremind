@@ -1,98 +1,174 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
+import React, { useEffect } from 'react';
+import { StyleSheet, TouchableOpacity, View, I18nManager } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Colors, Layout } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { usePatientStore } from '@/store/patientStore';
+import { ttsService, SupportedLanguage } from '@/services/ttsService';
 
-export default function HomeScreen() {
+export default function PatientMainScreen() {
+  const theme = useColorScheme() ?? 'light';
+  const { t, i18n } = useTranslation();
+  const { medications, syncData, markDose } = usePatientStore();
+
+  useEffect(() => {
+    syncData();
+  }, [syncData]);
+
+  const activeMedication = medications.length > 0 ? medications[0] : null;
+  const activeSchedule = activeMedication?.schedules?.length ? activeMedication.schedules[0] : null;
+
+  const handleTaken = () => {
+    if (activeSchedule) {
+      markDose(activeSchedule.id, 'taken');
+      ttsService.stop();
+    }
+  };
+
+  const handleSkip = () => {
+    if (activeSchedule) {
+      markDose(activeSchedule.id, 'skipped');
+      ttsService.stop();
+    }
+  };
+
+  const playReminderAudio = () => {
+    if (activeMedication) {
+      // Pass the current active language to the Text-to-Speech service
+      const currentLang = i18n.language as SupportedLanguage;
+      ttsService.playMedicationReminder(activeMedication.name, activeMedication.dosage, currentLang);
+    }
+  };
+
+  useEffect(() => {
+    if (activeMedication) {
+      playReminderAudio();
+    }
+    return () => ttsService.stop();
+  }, [activeMedication, i18n.language]);
+
+  if (!activeMedication || !activeSchedule) {
+    return (
+      <ThemedView style={[styles.container, styles.centerAll]} variant="background">
+        <ThemedText type="title" style={{ textAlign: 'center', marginBottom: 16 }}>{t('allCaughtUp')}</ThemedText>
+        <ThemedText type="default" style={{ textAlign: 'center' }}>{t('noPending')}</ThemedText>
+      </ThemedView>
+    );
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ThemedView style={styles.container} variant="background">
+      <View style={styles.header}>
+        <ThemedText type="title">{t('goodMorning')}</ThemedText>
+        <ThemedText type="default">{t('timeForMedication')}</ThemedText>
+      </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+      <ThemedView variant="cardBg" style={styles.card}>
+        
+        <TouchableOpacity 
+          style={styles.audioButton}
+          onPress={playReminderAudio}
+          accessibilityLabel="Replay voice reminder"
+          accessibilityRole="button"
+        >
+          <IconSymbol name="speaker.wave.3.fill" size={32} color={Colors[theme].tint} />
+          <ThemedText type="defaultSemiBold" style={{ color: Colors[theme].tint, marginTop: 4 }}>
+            {t('playAudio')}
+          </ThemedText>
+        </TouchableOpacity>
+
+        <ThemedText type="title" style={styles.medName}>
+          {activeMedication.name}
         </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+        <ThemedText type="subtitle" style={styles.medDetails}>
+          {activeMedication.dosage} • {activeSchedule.scheduled_time}
         </ThemedText>
+        
+        <View style={styles.actionContainer}>
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: Colors[theme].success }]}
+            onPress={handleTaken}
+            activeOpacity={0.8}
+            accessibilityLabel="Mark medication as taken"
+            accessibilityRole="button"
+          >
+            <ThemedText type="action" style={styles.buttonText}>
+              {t('taken')}
+            </ThemedText>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: Colors[theme].danger }]}
+            onPress={handleSkip}
+            activeOpacity={0.8}
+            accessibilityLabel="Skip medication"
+            accessibilityRole="button"
+          >
+            <ThemedText type="action" style={styles.buttonText}>
+              {t('skip')}
+            </ThemedText>
+          </TouchableOpacity>
+        </View>
       </ThemedView>
-    </ParallaxScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    padding: Layout.gutter,
+    justifyContent: 'center',
   },
-  stepContainer: {
-    gap: 8,
+  centerAll: {
+    alignItems: 'center',
+  },
+  header: {
+    marginBottom: 32,
+    alignItems: I18nManager.isRTL ? 'flex-end' : 'flex-start',
+  },
+  card: {
+    borderRadius: Layout.borderRadius,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  audioButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    marginBottom: 16,
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+    borderRadius: Layout.borderRadius,
+  },
+  medName: {
+    textAlign: 'center',
     marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  medDetails: {
+    textAlign: 'center',
+    color: '#6b7280',
+    marginBottom: 32,
+  },
+  actionContainer: {
+    gap: 16, 
+  },
+  actionButton: {
+    height: Layout.buttonHeight,
+    borderRadius: Layout.borderRadius,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  buttonText: {
+    color: '#ffffff',
   },
 });
