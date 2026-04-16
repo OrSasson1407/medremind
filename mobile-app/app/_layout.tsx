@@ -2,9 +2,9 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
-import { useEffect } from 'react';
-import '../i18n'; // Initializes translations on boot
-
+import { useEffect, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import { storage } from '../store/storage';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePatientStore } from '@/store/patientStore';
 
@@ -17,25 +17,38 @@ export default function RootLayout() {
   const { patientId } = usePatientStore();
   const segments = useSegments();
   const router = useRouter();
+  const [ready, setReady] = useState(false);
 
-  // The Bouncer logic: protects the (tabs) from unauthenticated users
+  // Hydrate storage cache FIRST, then load i18n
   useEffect(() => {
-    // Check if the user is currently on the login screen
-    const inAuthGroup = segments[0] === 'login';
+    storage.hydrate().then(() => {
+      // Dynamically import i18n only after storage is ready
+      require('../i18n');
+      setReady(true);
+    });
+  }, []);
 
+  useEffect(() => {
+    if (!ready) return;
+    const inAuthGroup = segments[0] === 'login';
     if (!patientId && !inAuthGroup) {
-      // No ID found and not on the login page -> Redirect to login
       router.replace('/login');
     } else if (patientId && inAuthGroup) {
-      // ID found but still on the login page -> Redirect to main app
       router.replace('/(tabs)');
     }
-  }, [patientId, segments]);
+  }, [patientId, segments, ready]);
+
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        {/* Registration of the login and main tab routes */}
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
