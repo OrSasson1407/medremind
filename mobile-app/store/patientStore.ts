@@ -13,6 +13,8 @@ export interface Medication {
   name: string;
   dosage: string;
   instructions?: string;
+  type?: 'pill' | 'capsule' | 'liquid' | 'syringe';
+  color?: string;
   schedules: Schedule[];
 }
 
@@ -27,14 +29,19 @@ export interface PendingLog {
 export interface PatientState {
   patientId: number | null;
   pinCode: string | null;
+  caregiverPhone: string | null;
   medications: Medication[];
   pendingLogs: PendingLog[];
+  isAccessibilityMode: boolean;
+  currentStreak: number;          // ✅ Step 11: Tracking Gamification Streak
+  lastActionDate: string | null;  // ✅ Step 11: Date of last action to calculate streak
 
-  // Actions
   setAuth: (id: number, pin: string) => void;
-  logout: () => void;                          // ✅ new
+  logout: () => void;
   syncData: () => Promise<void>;
-  markDose: (logId: number, status: 'taken' | 'skipped', reason?: string) => Promise<void>;
+  markDose: (logId: number, status: 'taken' | 'skipped', reason?: string) => void;
+  undoDose: (logId: number) => void;
+  toggleAccessibility: (value: boolean) => void;
 }
 
 export const usePatientStore = create<PatientState>()(
@@ -42,13 +49,21 @@ export const usePatientStore = create<PatientState>()(
     (set, get) => ({
       patientId: null as number | null,
       pinCode: null as string | null,
+      caregiverPhone: null,
       medications: [],
       pendingLogs: [],
+      isAccessibilityMode: false,
+      currentStreak: 0,
+      lastActionDate: null,
 
       setAuth: (id: number, pin: string) => set({ patientId: id, pinCode: pin }),
 
-      // ✅ Clears all state → triggers auth guard → redirects to /login
-      logout: () => set({ patientId: null, pinCode: null, medications: [], pendingLogs: [] }),
+      logout: () => set({ 
+        patientId: null, pinCode: null, caregiverPhone: null, 
+        medications: [], pendingLogs: [], currentStreak: 0, lastActionDate: null 
+      }),
+
+      toggleAccessibility: (value: boolean) => set({ isAccessibilityMode: value }),
 
       syncData: async () => {
         const { patientId, pendingLogs } = get();
@@ -68,17 +83,41 @@ export const usePatientStore = create<PatientState>()(
           }
 
           const { data } = await api.get(`/patients/${patientId}`);
-          if (data && data.medications) {
-            set({ medications: data.medications });
+          if (data) {
+            set({ 
+              medications: data.medications || [],
+              caregiverPhone: data.caregiver_phone || '1234567890'
+            });
           }
         } catch (error) {
           console.log('[SYNC] Network unavailable, maintaining offline cache.');
         }
       },
 
-      markDose: async (logId: number, status: 'taken' | 'skipped', reason?: string) => {
-        const { pinCode, pendingLogs } = get();
+      markDose: (logId: number, status: 'taken' | 'skipped', reason?: string) => {
+        const { pinCode, pendingLogs, currentStreak, lastActionDate } = get();
         if (!pinCode) return;
+
+        // ✅ Step 11: Calculate Streak Logic
+        const today = new Date().toDateString();
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toDateString();
+
+        let newStreak = currentStreak;
+        let newLastActionDate = lastActionDate;
+
+        if (status === 'taken') {
+          if (lastActionDate === yesterdayStr) {
+            newStreak += 1; // Continued from yesterday
+          } else if (lastActionDate !== today) {
+            newStreak = 1;  // Started a new streak today
+          }
+          newLastActionDate = today;
+        } else if (status === 'skipped') {
+          newStreak = 0; // Broken streak
+          newLastActionDate = today;
+        }
 
         const payload: PendingLog = {
           dose_log_id: logId,
@@ -88,8 +127,18 @@ export const usePatientStore = create<PatientState>()(
           timestamp: Date.now(),
         };
 
-        set({ pendingLogs: [...pendingLogs, payload] });
-        get().syncData();
+        const updatedLogs = pendingLogs.filter(log => log.dose_log_id !== logId);
+        
+        set({ 
+          pendingLogs: [...updatedLogs, payload],
+          currentStreak: newStreak,
+          lastActionDate: newLastActionDate
+        });
+      },
+
+      undoDose: (logId: number) => {
+        const { pendingLogs } = get();
+        set({ pendingLogs: pendingLogs.filter((log) => log.dose_log_id !== logId) });
       },
     }),
     {

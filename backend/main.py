@@ -7,6 +7,7 @@ from sqlalchemy import text
 from typing import List
 from datetime import datetime, time as dt_time, timezone, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
+from pydantic import BaseModel
 import io
 
 try:
@@ -141,6 +142,23 @@ def me(current_user: models.User = Depends(auth.get_current_user)):
 
 
 # ── Patients ───────────────────────────────────────────────────────────────────
+
+# ✅ NEW: Secure Mobile App Verification Payload
+class MobileSyncPayload(BaseModel):
+    patient_id: int
+    pin_code: str
+
+# ✅ NEW: Mobile Login/Sync Endpoint
+@app.post("/patients/mobile-sync", response_model=schemas.PatientResponse)
+def mobile_sync(payload: MobileSyncPayload, db: Session = Depends(database.get_db)):
+    """Verifies the patient PIN from the mobile app and returns their data."""
+    patient = db.query(models.Patient).filter(models.Patient.id == payload.patient_id).first()
+    
+    # Strictly verify existence and PIN
+    if not patient or patient.pin_code != payload.pin_code:
+        raise HTTPException(status_code=403, detail="Invalid Patient ID or PIN")
+        
+    return patient
 
 @app.post("/patients/", response_model=schemas.PatientResponse, status_code=201)
 def create_patient(

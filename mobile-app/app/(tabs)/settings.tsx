@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, TouchableOpacity, View, I18nManager, Alert } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, I18nManager, Alert, Switch, ScrollView } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import * as Updates from 'expo-updates';
 import { ThemedText } from '@/components/themed-text';
@@ -8,14 +8,17 @@ import { Layout, Colors } from '@/constants/theme';
 import { storage } from '@/store/storage';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePatientStore } from '@/store/patientStore';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
   const theme = useColorScheme() ?? 'light';
-  const logout = usePatientStore((s) => s.logout);  // ✅ new
+  
+  // ✅ Pull in Accessibility state & action along with logout
+  const { logout, isAccessibilityMode, toggleAccessibility } = usePatientStore(); 
 
   const changeLanguage = async (lng: 'en' | 'he' | 'ar') => {
-    await storage.set('app-language', lng);          // ✅ await fix
+    await storage.set('app-language', lng);
     await i18n.changeLanguage(lng);
 
     const isRTL = lng === 'he' || lng === 'ar';
@@ -25,7 +28,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // ✅ new
   const handleLogout = () => {
     Alert.alert(
       t('logout'),
@@ -64,42 +66,68 @@ export default function SettingsScreen() {
 
   return (
     <ThemedView style={styles.container} variant="background">
-      <View style={styles.header}>
-        <ThemedText type="title">{t('settings')}</ThemedText>
-      </View>
-
-      {/* Language Card */}
-      <ThemedView variant="cardBg" style={styles.card}>
-        <ThemedText type="subtitle" style={{ marginBottom: 8 }}>
-          {t('language')}
-        </ThemedText>
-        <ThemedText type="default" style={{ marginBottom: 24, color: '#6b7280' }}>
-          {t('selectLanguage')}
-        </ThemedText>
-
-        <View style={styles.options}>
-          <LangButton code="he" label="עברית (Hebrew)" />
-          <LangButton code="ar" label="العربية (Arabic)" />
-          <LangButton code="en" label="English" />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        <View style={styles.header}>
+          <ThemedText type="title">{t('settings')}</ThemedText>
         </View>
-      </ThemedView>
 
-      {/* ✅ Logout Button */}
-      <TouchableOpacity
-        style={[styles.logoutButton, { borderColor: Colors[theme].danger }]}
-        onPress={handleLogout}
-        accessibilityRole="button"
-      >
-        <ThemedText type="defaultSemiBold" style={[styles.logoutText, { color: Colors[theme].danger }]}>
-          {t('logout')}
-        </ThemedText>
-      </TouchableOpacity>
+        {/* Language Card */}
+        <ThemedView variant="cardBg" style={styles.card}>
+          <ThemedText type="subtitle" style={{ marginBottom: 8 }}>
+            {t('language')}
+          </ThemedText>
+          <ThemedText type="default" style={{ marginBottom: 24, color: '#6b7280' }}>
+            {t('selectLanguage')}
+          </ThemedText>
+
+          <View style={styles.options}>
+            <LangButton code="he" label="עברית (Hebrew)" />
+            <LangButton code="ar" label="العربية (Arabic)" />
+            <LangButton code="en" label="English" />
+          </View>
+        </ThemedView>
+
+        {/* ✅ Accessibility Toggle Card */}
+        <ThemedView variant="cardBg" style={[styles.card, styles.settingRow]}>
+          <View style={styles.settingTextContent}>
+            <View style={styles.settingIconTitle}>
+              <IconSymbol name="textformat.size" size={24} color={Colors[theme].tint} />
+              <ThemedText type="defaultSemiBold" style={{ fontSize: isAccessibilityMode ? 20 : 16 }}>
+                {t('accessibilityMode')}
+              </ThemedText>
+            </View>
+            <ThemedText type="default" style={{ color: Colors[theme].icon, fontSize: isAccessibilityMode ? 16 : 14, marginTop: 4 }}>
+              {t('accessibilityDesc')}
+            </ThemedText>
+          </View>
+          <Switch
+            value={isAccessibilityMode}
+            onValueChange={toggleAccessibility}
+            trackColor={{ false: Colors[theme].border, true: Colors[theme].tint }}
+            accessibilityRole="switch"
+          />
+        </ThemedView>
+
+        {/* Logout Button */}
+        <TouchableOpacity
+          style={[styles.logoutButton, { borderColor: Colors[theme].danger }]}
+          onPress={handleLogout}
+          accessibilityRole="button"
+        >
+          <ThemedText type="defaultSemiBold" style={[styles.logoutText, { color: Colors[theme].danger, fontSize: isAccessibilityMode ? 18 : 16 }]}>
+            {t('logout')}
+          </ThemedText>
+        </TouchableOpacity>
+
+      </ScrollView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: Layout.gutter, justifyContent: 'center' },
+  container: { flex: 1 },
+  scrollContent: { padding: Layout.gutter, paddingTop: 60, paddingBottom: 40, justifyContent: 'center' },
   header: { marginBottom: 32, alignItems: I18nManager.isRTL ? 'flex-end' : 'flex-start' },
   card: {
     borderRadius: Layout.borderRadius,
@@ -115,6 +143,12 @@ const styles = StyleSheet.create({
   },
   options: { gap: 12 },
   langButton: { padding: 16, borderRadius: Layout.borderRadius, borderWidth: 2, alignItems: 'center' },
+  
+  // Accessibility row styles
+  settingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  settingTextContent: { flex: 1, paddingRight: 16 },
+  settingIconTitle: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  
   logoutButton: {
     marginTop: 8,
     padding: 16,

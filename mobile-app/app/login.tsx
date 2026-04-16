@@ -16,6 +16,7 @@ import { Colors, Layout } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePatientStore } from '@/store/patientStore';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { api } from '@/services/api'; // ✅ Import API
 
 function validate(id: string, pin: string): string {
   if (!id.trim() || !pin.trim()) return 'Please enter both Patient ID and PIN.';
@@ -46,13 +47,24 @@ export default function LoginScreen() {
     setIsLoading(true);
 
     try {
+      // ✅ The True Verification: Check the PIN against the database FIRST
+      await api.post('/patients/mobile-sync', { 
+        patient_id: parseInt(idInput, 10), 
+        pin_code: pinInput 
+      });
+
+      // If successful, save credentials locally and sync
       setAuth(parseInt(idInput, 10), pinInput);
       await syncData();
       router.replace('/(tabs)');
-    } catch (err) {
-      setError('Could not connect to the server. Your data will sync when online.');
-      // Still navigate — the app works offline
-      router.replace('/(tabs)');
+      
+    } catch (err: any) {
+      // ✅ Block access if the PIN or ID doesn't match the database
+      if (err.response?.status === 403 || err.response?.status === 404) {
+        setError('Invalid Patient ID or PIN code. Please try again.');
+      } else {
+        setError('Network error. First-time setup requires an internet connection.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -170,12 +182,12 @@ export default function LoginScreen() {
               accessibilityRole="button"
               accessibilityLabel="Connect device"
             >
-              {isLoading ? (
+             {isLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <ThemedText type="defaultSemiBold" style={styles.buttonText}>
                   Connect Device
-                </ThemedText>
+                </ThemedText> 
               )}
             </TouchableOpacity>
           </ThemedView>
